@@ -24,7 +24,7 @@ func createTables(db *sql.DB) {
 		id TEXT PRIMARY KEY,
 		google_id TEXT UNIQUE NOT NULL,
 		email TEXT NOT NULL,
-		created_at DATETIME DEFAULT CURRENT TIMESTAMP
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
 
@@ -32,7 +32,7 @@ func createTables(db *sql.DB) {
 		id TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL,
 		name TEXT NOT NULL,
-		created_at DATETIME DEFAULT CURRENT TIMESTAMP,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
 
@@ -43,7 +43,7 @@ func createTables(db *sql.DB) {
 		start_time DATETIME NOT NULL,
 		end_time DATETIME NOT NULL,
 		duration_minutes INTEGER NOT NULL,
-		timestamp DATETIME DEFAULT CURRENT TIMESTAMP,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY(habit_id) REFERENCES habits(id) ON DELETE CASCADE,
 		FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
