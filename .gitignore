@@ -1,0 +1,20 @@
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+
+# Go workspace/build files
+/backend/habit-coach-backend
+/backend/*.exe
+/backend/*.test
+/backend/*.out
+
+# Our SQLite Database File
+# (We will create this in the next step, but good to 
+ignore it now)
+/backend/*.db
+/backend/*.sqlite
+/backend/*.sqlite3
