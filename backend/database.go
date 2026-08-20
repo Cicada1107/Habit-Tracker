@@ -3,11 +3,13 @@ package main
 import (
 	"database/sql"
 	"log"
+	"time"
 
+	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 )
 
-func initDB() *sql.DB {
+func InitDB() *sql.DB {
 	db, err := sql.Open("sqlite3", "./habit_coach.db")
 	if err != nil {
 		log.Fatalf("failed to open database: %v", err)
@@ -24,6 +26,9 @@ func createTables(db *sql.DB) {
 		id TEXT PRIMARY KEY,
 		google_id TEXT UNIQUE NOT NULL,
 		email TEXT NOT NULL,
+		access_token TEXT,
+		refresh_token TEXT,
+		token_expiry DATETIME,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
@@ -54,4 +59,21 @@ func createTables(db *sql.DB) {
 		log.Fatalf("Failed to create tables: %v", err)
 	}
 	log.Println("Database tables initialized successfully!")
+}
+
+// Inserts or updates a user in the database
+func SaveUser(db *sql.DB, googleID, email, accessToken, refreshToken string, tokenExpiry time.Time) error {
+	id := uuid.New().String()
+
+	query := `
+		INSERT INTO users (id, google_id, email, access_token, refresh_token, token_expiry)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(google_id) DO UPDATE SET
+			access_token = excluded.access_token,
+			refresh_token = excluded.refresh_token,
+			token_expiry = excluded.token_expiry;
+	`
+
+	_, err := db.Exec(query, id, googleID, email, accessToken, refreshToken, tokenExpiry)
+	return err
 }
