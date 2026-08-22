@@ -19,15 +19,14 @@ func main() {
 
 	// 1. Initialize the SQLite database
 	db := InitDB()
+	InitRedis()
+	go StartWorker(db)
 	defer db.Close()
 
 	// 2. Set up the router
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)    //Logs every api request to terminal
 	r.Use(middleware.Recoverer) //Prevents the server from crashing if there's an error
-
-
-
 
 	// 3. Define the routes
 
@@ -41,9 +40,6 @@ func main() {
 	r.Get("/auth/google/callback", handleGoogleCallback)
 
 	// Fetching user data routes
-	
-
-
 
 	// 4. Start the server
 	port := "8080"
