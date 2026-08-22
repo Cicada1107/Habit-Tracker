@@ -54,9 +54,9 @@ func StartWorker(db *sql.DB) {
 		log.Printf("Processing sync job for user: %s", googleId)
 
 		// 1. Fetch the user's access token from the database
-		accessToken, err := GetAccessToken(db, googleId)
+		accessToken, refreshToken, expiry, err := GetToken(db, googleId)
 		if err == nil {
-			FetchCalendarEvents(db, accessToken, googleId)
+			FetchCalendarEvents(db, accessToken, refreshToken, expiry, googleId)
 			fmt.Println("Worker finished the job successfully")
 		} else {
 			log.Printf("Failed to fetch access token for user %s: %v", googleId, err)

@@ -68,7 +68,7 @@ func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Saved user %s to db\n", email)
 
 	// Test fetching calendar events and tasks
-	FetchCalendarEvents(db, token.AccessToken, googleId)
+	FetchCalendarEvents(db, token.AccessToken, token.RefreshToken, token.Expiry, googleId)
 
 	// 3. Respond to the user
 	w.Header().Set("Content-Type", "application/json")

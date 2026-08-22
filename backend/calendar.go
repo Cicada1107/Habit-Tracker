@@ -13,9 +13,9 @@ import (
 )
 
 // FetchCalendarEvents fetches the time-based blocks from user's google calendar
-func FetchCalendarEvents(db *sql.DB, accessToken string, googleID string) {
+func FetchCalendarEvents(db *sql.DB, accessToken string, refreshToken string, expiry time.Time, googleID string) {
 	ctx := context.Background()
-	token := &oauth2.Token{AccessToken: accessToken}
+	token := &oauth2.Token{AccessToken: accessToken, RefreshToken: refreshToken, Expiry: expiry}
 	client := googleOauthConfig.Client(ctx, token)
 
 	srv, err := calendar.NewService(ctx, option.WithHTTPClient(client))

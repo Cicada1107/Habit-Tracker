@@ -97,12 +97,13 @@ func SaveEvent(db *sql.DB, eventID, userID, title string, startTime, endTime tim
 }
 
 // Fetches a user's access token from the database using their Google ID
-func GetAccessToken(db *sql.DB, googleID string) (string, error) {
-	var accessToken string
-	query := `SELECT access_token FROM users WHERE google_id = ?`
-	err := db.QueryRow(query, googleID).Scan(&accessToken)
+func GetToken(db *sql.DB, googleID string) (string, string, time.Time, error) {
+	var accessToken, refreshToken string
+	var expiry time.Time
+	query := `SELECT access_token, refresh_token, token_expiry FROM users WHERE google_id = ?`
+	err := db.QueryRow(query, googleID).Scan(&accessToken, &refreshToken, &expiry)
 	if err != nil {
-		return "", err
+		return "", "", time.Time{}, err
 	}
-	return accessToken, nil
+	return accessToken, refreshToken, expiry, nil
 }

@@ -41,6 +41,9 @@ func main() {
 
 	// Fetching user data routes
 
+	// Webhook routes
+	r.Post("/api/webhooks/google", handleGoogleWebhook)
+
 	// 4. Start the server
 	port := "8080"
 	log.Printf("Starting server on :%s", port)
