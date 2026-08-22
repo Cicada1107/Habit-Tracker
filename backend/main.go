@@ -26,18 +26,24 @@ func main() {
 	r.Use(middleware.Logger)    //Logs every api request to terminal
 	r.Use(middleware.Recoverer) //Prevents the server from crashing if there's an error
 
+
+
+
 	// 3. Define the routes
 
-	// Health Route
+	// Health Routes
 	r.Get("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Habit Coach API is up and running!"))
 	})
 
-	// Login route
+	// Login, consent & redirect routes
 	r.Get("/auth/google/login", handleGoogleLogin)
-
-	// Callback route
 	r.Get("/auth/google/callback", handleGoogleCallback)
+
+	// Fetching user data routes
+	
+
+
 
 	// 4. Start the server
 	port := "8080"

@@ -11,12 +11,12 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
-var googleOatuhConfig *oauth2.Config
+var googleOauthConfig *oauth2.Config
 
 const oauthStateString = "random-string"
 
 func initOAuth() {
-	googleOatuhConfig = &oauth2.Config{
+	googleOauthConfig = &oauth2.Config{
 		RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URI"),
 		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
@@ -28,7 +28,7 @@ func initOAuth() {
 
 func handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 	// Generate google login URL and redirect the user there
-	url := googleOatuhConfig.AuthCodeURL(oauthStateString)
+	url := googleOauthConfig.AuthCodeURL(oauthStateString)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
@@ -39,7 +39,7 @@ func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := googleOatuhConfig.Exchange(context.Background(), r.FormValue("code"))
+	token, err := googleOauthConfig.Exchange(context.Background(), r.FormValue("code"))
 	if err != nil {
 		http.Error(w, "Code exchange failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -67,6 +67,10 @@ func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Printf("Saved user %s to db\n", email)
 
+	// Test fetching calendar events and tasks
+	FetchCalendarEvents(db, token.AccessToken, googleId)
+
+	// 3. Respond to the user
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "Login successful and user saved",

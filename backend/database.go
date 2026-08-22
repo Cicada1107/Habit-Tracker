@@ -77,3 +77,21 @@ func SaveUser(db *sql.DB, googleID, email, accessToken, refreshToken string, tok
 	_, err := db.Exec(query, id, googleID, email, accessToken, refreshToken, tokenExpiry)
 	return err
 }
+
+// Inserts an event into the database
+func SaveEvent(db *sql.DB, eventID, userID, title string, startTime, endTime time.Time) error {
+	durationMinutes := int(endTime.Sub(startTime).Minutes())
+
+	query := `
+		INSERT INTO events (id, habit_id, user_id, start_time, end_time, duration_minutes)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			start_time = excluded.start_time,
+			end_time = excluded.end_time,
+			duration_minutes = excluded.duration_minutes;
+	`
+
+	// Temporarily saving 'title' as habit_id for now, since we don't have a habit_id yet. In the future, we can map events to habits.
+	_, err := db.Exec(query, eventID, title, userID, startTime, endTime, durationMinutes)
+	return err
+}
