@@ -107,3 +107,43 @@ func GetToken(db *sql.DB, googleID string) (string, string, time.Time, error) {
 	}
 	return accessToken, refreshToken, expiry, nil
 }
+
+// Fetches a user's calendar evetns from the DB, given their google ID
+func fetchCalendarEventsFromDB(googleID string) ([]EventResponse, error) {
+	db := InitDB()
+	defer db.Close()
+
+	var userID string
+	err := db.QueryRow("SELECT id FROM users WHERE google_id = ?", googleID).Scan(&userID)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query("SELECT habit_id, start_time, end_time FROM events WHERE user_id = ?", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []EventResponse
+	for rows.Next() {
+		var habitID string
+		var startTime, endTime time.Time
+		if err := rows.Scan(&habitID, &startTime, &endTime); err != nil {
+			return nil, err
+		}
+
+		event := EventResponse{
+			Title:    habitID,
+			Start:    startTime.Format(time.RFC3339),
+			Duration: endTime.Format(time.RFC3339),
+		}
+		events = append(events, event)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return events, nil
+}

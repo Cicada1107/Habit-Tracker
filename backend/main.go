@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/joho/godotenv"
 )
 
@@ -27,6 +28,11 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)    //Logs every api request to terminal
 	r.Use(middleware.Recoverer) //Prevents the server from crashing if there's an error
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins: []string{"http://localhost:5173"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+	}))
 
 	// 3. Define the routes
 
@@ -38,6 +44,7 @@ func main() {
 	// Login, consent & redirect routes
 	r.Get("/auth/google/login", handleGoogleLogin)
 	r.Get("/auth/google/callback", handleGoogleCallback)
+	r.Get("/api/events", AuthMiddleware(handleGetEvents))
 
 	// Fetching user data routes
 

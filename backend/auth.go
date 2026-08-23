@@ -3,17 +3,21 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
+	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
 
 var googleOauthConfig *oauth2.Config
 
+// ToDo: put these in .env file and load them using godotenv
 const oauthStateString = "random-string"
+
+var jwtSecretKey = []byte("secret-habit-coach-jwt-key")
 
 func initOAuth() {
 	googleOauthConfig = &oauth2.Config{
@@ -55,7 +59,7 @@ func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	googleId := userInfo["id"].(string)
 	email := userInfo["email"].(string)
 
-	// 2. Save everyuthing to sqlite db
+	// 2. Save everything to sqlite db
 	db := InitDB()
 	defer db.Close()
 
@@ -65,17 +69,35 @@ func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("Saved user %s to db\n", email)
+	// look up the iternal user id for the given google id
+	var internalUserID string
+	db.QueryRow("SELECT id FROM users WHERE google_id =?", googleId).Scan(&internalUserID)
 
-	// Test fetching calendar events and tasks
-	FetchCalendarEvents(db, token.AccessToken, token.RefreshToken, token.Expiry, googleId)
-
-	// 3. Respond to the user
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Login successful and user saved",
-		"email":   email,
+	// 3. Generate JWT token for the user
+	tokenJWT := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": internalUserID,
+		"exp":     time.Now().Add(time.Hour * 24).Unix(), // Token expires in 24 hours
 	})
+
+	// sign it with secret key
+	signedToken, err := tokenJWT.SignedString(jwtSecretKey)
+	if err != nil {
+		http.Error(w, "Failed to sign JWT token: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// set the token as the secure HTTP-Only cookie in the user's browser
+	http.SetCookie(w, &http.Cookie{
+		Name:     "habit_session_token",
+		Value:    signedToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	// redirect the user to the react frontend app
+	http.Redirect(w, r, "http://localhost:5173", http.StatusTemporaryRedirect)
 }
 
 func getUserInfoFromGoogle(token string) (map[string]interface{}, error) {
