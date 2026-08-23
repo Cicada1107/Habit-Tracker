@@ -18,3 +18,7 @@ ignore it now)
 /backend/*.db
 /backend/*.sqlite
 /backend/*.sqlite3
+
+# Frontend React Package related files
+/frontend/node_modules
+/frontend/build
