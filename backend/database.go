@@ -119,7 +119,7 @@ func fetchCalendarEventsFromDB(googleID string) ([]EventResponse, error) {
 		return nil, err
 	}
 
-	rows, err := db.Query("SELECT habit_id, start_time, end_time FROM events WHERE user_id = ?", userID)
+	rows, err := db.Query("SELECT habit_id, start_time, duration_minutes FROM events WHERE user_id = ?", userID)
 	if err != nil {
 		return nil, err
 	}
@@ -128,15 +128,16 @@ func fetchCalendarEventsFromDB(googleID string) ([]EventResponse, error) {
 	var events []EventResponse
 	for rows.Next() {
 		var habitID string
-		var startTime, endTime time.Time
-		if err := rows.Scan(&habitID, &startTime, &endTime); err != nil {
+		var startTime time.Time
+		var durationMinutes int
+		if err := rows.Scan(&habitID, &startTime, &durationMinutes); err != nil {
 			return nil, err
 		}
 
 		event := EventResponse{
 			Title:    habitID,
 			Start:    startTime.Format(time.RFC3339),
-			Duration: endTime.Format(time.RFC3339),
+			Duration: durationMinutes,
 		}
 		events = append(events, event)
 	}

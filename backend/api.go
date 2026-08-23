@@ -9,7 +9,7 @@ import (
 type EventResponse struct {
 	Title    string `json:"title"`
 	Start    string `json:"start"`
-	Duration string `json:"end"`
+	Duration int    `json:"duration"`
 }
 
 func handleGetEvents(w http.ResponseWriter, r *http.Request) {

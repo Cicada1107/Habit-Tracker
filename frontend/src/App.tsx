@@ -1,122 +1,127 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useEffect, useState, useMemo } from 'react';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
+import { CalendarDays, LogIn } from 'lucide-react';
 
-function App() {
-  const [count, setCount] = useState(0)
-
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+interface HabitEvent {
+  title: string;
+  start: string;
+  duration: number;
 }
 
-export default App
+export default function App() {
+  const [events, setEvents] = useState<HabitEvent[]>([]);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    fetch('http://localhost:8080/api/events', { credentials: 'include' })
+      .then((res) => {
+        if (res.status === 401) throw new Error('Not logged in');
+        return res.json();
+      })
+      .then((data) => {
+        if (data && Array.isArray(data)) {
+          setEvents(data);
+          setIsAuthenticated(true);
+        }
+      })
+      .catch(() => setIsAuthenticated(false));
+  }, []);
+
+  // Compute chart data only when events change. 
+  // Recharts can bug out if we give it a brand new array reference on every render.
+  const chartData = useMemo(() => {
+    const totals: Record<string, number> = {};
+    events.forEach((e) => {
+      // Handle edge cases where title might be missing
+      const title = e.title || 'Untitled';
+      totals[title] = (totals[title] || 0) + e.duration;
+    });
+
+    return Object.entries(totals)
+      .map(([name, duration]) => ({
+        name,
+        // Convert minutes to hours, keep 1 decimal (e.g., 1.5h) to avoid zero-values
+        value: Number((duration / 60).toFixed(1)),
+      }))
+      .filter((item) => item.value > 0); // Recharts hates 0 or NaN values
+  }, [events]);
+
+  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <CalendarDays className="mx-auto h-16 w-16 text-blue-500 mb-4" />
+          <h1 className="text-3xl font-bold mb-6 text-gray-800">Habit Coach</h1>
+          <a
+            href="http://localhost:8080/auth/google/login"
+            className="inline-flex items-center justify-center px-6 py-3 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 transition-colors text-gray-700 font-semibold"
+          >
+            <LogIn className="w-5 h-5 mr-2" />
+            Sign in with Google
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-8">
+      <div className="max-w-4xl mx-auto">
+        <header className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-800">Your Habit Dashboard</h1>
+          <p className="text-gray-500">Tracking {events.length} total time blocks</p>
+        </header>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* The Pie Chart */}
+          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <h2 className="text-xl font-semibold mb-4 text-gray-700">Time Breakdown (Hours)</h2>
+            {chartData.length > 0 ? (
+              <div className="h-80 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={chartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={100}
+                      paddingAngle={5}
+                      dataKey="value"
+                      label={({ name, value }) => `${name} (${value}h)`}
+                    >
+                      {chartData.map((_, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: number) => [`${value} hours`, 'Time Spent']} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-80 flex items-center justify-center text-gray-400">
+                Processing chart data...
+              </div>
+            )}
+          </div>
+
+          {/* Raw Data Table (Fallback to prove data is rendering) */}
+          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 overflow-y-auto max-h-[400px]">
+            <h2 className="text-xl font-semibold mb-4 text-gray-700">Activity Log</h2>
+            <ul className="space-y-3">
+              {chartData.sort((a, b) => b.value - a.value).map((item, i) => (
+                <li key={i} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                  <span className="font-medium text-gray-700">{item.name}</span>
+                  <span className="font-bold text-blue-600">{item.value} hrs</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
