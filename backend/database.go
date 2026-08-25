@@ -9,10 +9,6 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// Todo: Implement this struct to use it in the tool call
-type HabitStats struct {
-}
-
 func InitDB() *sql.DB {
 	db, err := sql.Open("sqlite3", "./habit_coach.db")
 	if err != nil {
@@ -151,9 +147,4 @@ func fetchCalendarEventsFromDB(googleID string) ([]EventResponse, error) {
 	}
 
 	return events, nil
-}
-
-// Implement this to use it as a tool in the agentic AI call. It should return a list of HabitStats for the user, given their userID and a time range.
-func GetCondensedHabitStats(db *sql.DB, userID string) ([]HabitStats, error) {
-
 }

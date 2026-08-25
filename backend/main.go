@@ -53,7 +53,7 @@ func main() {
 	r.Post("/api/webhooks/google", handleGoogleWebhook)
 
 	// AI routes
-	r.Post("/api/chat", AuthMiddleware(handlehabitCoachChat))
+	r.Post("/api/chat", AuthMiddleware(handleHabitCoachChat))
 
 	// 4. Start the server
 	port := "8080"
