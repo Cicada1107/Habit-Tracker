@@ -13,7 +13,7 @@ function HabitHeatmap({ title, events, onRemove }: { title: string, events: Habi
   const { heatmapGrid, maxDailyMin } = useMemo(() => {
     const dailyTotals: Record<string, number> = {};
     events.forEach((e) => {
-      if (e.title === title) {
+      if (e.title && e.title.toLowerCase().includes(title.toLowerCase())) {
         const day = e.start.split('T')[0];
         dailyTotals[day] = (dailyTotals[day] || 0) + e.duration;
       }
@@ -219,8 +219,8 @@ export default function App() {
   const trackNewHabit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = newHabitInput.trim();
-    if (trimmed && !trackedHabits.includes(trimmed)) {
-      setTrackedHabits([...trackedHabits, trimmed]);
+    if (trimmed && !trackedHabits.some(h => h.toLowerCase() === trimmed.toLowerCase())) {
+      setTrackedHabits([...trackedHabits, trimmed].slice(0, 5));
     }
     setNewHabitInput('');
   };
@@ -284,7 +284,7 @@ export default function App() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {trackedHabits.map(habit => (
+                {trackedHabits.slice(0, 5).map(habit => (
                   <HabitHeatmap 
                     key={habit} 
                     title={habit} 
