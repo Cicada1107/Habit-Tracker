@@ -39,7 +39,7 @@ func handleHabitCoachChat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 
-	model := client.GenerativeModel("gemini-1.5-flash")
+	model := client.GenerativeModel("gemini-3.5-flash")
 
 	// 1. DEFINE THE TOOLBOX
 	toolbox := &genai.Tool{
@@ -73,7 +73,6 @@ func handleHabitCoachChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	model.Tools = append(model.Tools, toolbox)
-	// Injecting current time for the LLM to be able to have context about the point in time
 	currentTime := time.Now().Format(time.RFC3339)
 	systemPrompt := fmt.Sprintf(`You are the 'Habit Coach' AI. The current time is %s. You have access to tools to fetch user data and calculate probabilities. ALWAYS use your tools to check the user's schedule or stats before answering questions about their habits. Keep your final answer concise and encouraging, formatted in markdown. Be unbiased, and try to be to the point and clear.`, currentTime)
 
@@ -81,65 +80,54 @@ func handleHabitCoachChat(w http.ResponseWriter, r *http.Request) {
 		Parts: []genai.Part{genai.Text(systemPrompt)},
 	}
 
-	session := model.StartChat()
-	resp, err := session.SendMessage(ctx, genai.Text(req.Question))
-	if err != nil {
-		http.Error(w, "Failed to get response from AI", http.StatusInternalServerError)
-		return
-	}
-
 	var answer string
+	currentPrompt := req.Question
 
-	// 2. the ReAct loop (Max 3 iterations to prevent infinite loops)
+	// 2. The STATELESS ReAct Loop (Max 3 iterations)
+	// Bypasses both the Quota limit of 2.5 and the thought_signature bug of 3.5!
 	for i := 0; i < 3; i++ {
 		toolCalled := false
+		resp, err := model.GenerateContent(ctx, genai.Text(currentPrompt))
+		
+		if err != nil {
+			fmt.Printf("🔴 AI ERROR: %v\n", err)
+			http.Error(w, "AI generation failed", http.StatusInternalServerError)
+			return
+		}
 
 		for _, part := range resp.Candidates[0].Content.Parts {
 			if funcCall, ok := part.(genai.FunctionCall); ok {
 				toolCalled = true
-				fmt.Println("Calling tool: ", funcCall.Name)
-				var toolResponse map[string]any
+				fmt.Println("🤖 AI is calling tool:", funcCall.Name)
 
-				// 3. Route the tool call to the appropriate function
-				switch funcCall.Name {
+				var toolData any
 
-				case "get_events_in_range":
+				if funcCall.Name == "get_events_in_range" {
 					startTime := funcCall.Args["start_time"].(string)
 					endTime := funcCall.Args["end_time"].(string)
-					events, err := GetEventsInRange(db, userID, startTime, endTime)
-					if err != nil {
-						http.Error(w, "Error fetching events", http.StatusInternalServerError)
-						return
-					}
-					toolResponse = map[string]any{"events": events}
-
-				case "calculate_habit_probability":
+					events, _ := GetEventsInRange(db, userID, startTime, endTime)
+					toolData = events
+					
+				} else if funcCall.Name == "calculate_habit_probability" {
 					habit := funcCall.Args["habit_name"].(string)
 					startTime := funcCall.Args["start_time"].(string)
 					endTime := funcCall.Args["end_time"].(string)
-					stats, err := CalculateHabitProbability(db, userID, habit, startTime, endTime)
-					if err != nil {
-						http.Error(w, "Error calculating habit probability", http.StatusInternalServerError)
-						return
-					}
-					toolResponse = map[string]any{"stats": stats}
+					stats, _ := CalculateHabitProbability(db, userID, habit, startTime, endTime)
+					toolData = stats
 				}
 
-				// 4. Feed the tool response back to the model
-				resp, err = session.SendMessage(ctx, genai.FunctionResponse{
-					Name:     funcCall.Name,
-					Response: toolResponse,
-				})
-				if err != nil {
-					http.Error(w, "Failed to get response from AI after tool call", http.StatusInternalServerError)
-					return
-				}
+				// Convert data to JSON string
+				dataBytes, _ := json.MarshalIndent(toolData, "", "  ")
+
+				// Append the tool results to the prompt for the next iteration!
+				currentPrompt += fmt.Sprintf("\n\nSystem Note: You called tool '%s' which returned:\n%s\nFormulate your final answer, or call another tool if you need more data.", funcCall.Name, string(dataBytes))
+				break // Break out of the parts loop, let the ReAct loop iterate
+
 			} else if text, ok := part.(genai.Text); ok {
-				answer = string(text)
+				answer += string(text)
 			}
 		}
 
-		// If no tool was called in this iteration, the AI has formulated its final answer! Exit the ReAct loop.
 		if !toolCalled {
 			break
 		}

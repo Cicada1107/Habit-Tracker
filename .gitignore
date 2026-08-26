@@ -22,3 +22,6 @@ ignore it now)
 # Frontend React Package related files
 /frontend/node_modules
 /frontend/build
+
+# ToDo
+toDo.md

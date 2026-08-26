@@ -11,6 +11,10 @@ interface HabitEvent {
 export default function App() {
   const [events, setEvents] = useState<HabitEvent[]>([]);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [question, setQuestion] = useState('');
+  const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
+  const [isTyping, setIsTyping] = useState(false);
+
 
   useEffect(() => {
     fetch('http://localhost:8080/api/events', { credentials: 'include' })
@@ -66,6 +70,30 @@ export default function App() {
     );
   }
 
+  const handleAskCoach = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if(!question.trim()) return;
+
+    // Add user question to UI
+    setChatHistory((prev) => [...prev, { role: 'user', text: question }]);
+    setQuestion('');
+    setIsTyping(true);
+
+    try {
+      const res = await fetch('http://localhost:8080/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ question }),
+      });
+      const data = await res.json();
+      setChatHistory((prev) => [...prev, { role: 'ai', text: data.answer }]);
+    } catch(err){
+      setChatHistory((prev) => [...prev, { role: 'ai', text: 'Error: Unable to get response from Habit Coach.' }]);
+    }
+    setIsTyping(false);Error: "Unable to get response from Habit Coach."
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-4xl mx-auto">
@@ -107,17 +135,36 @@ export default function App() {
             )}
           </div>
 
-          {/* Raw Data Table (Fallback to prove data is rendering) */}
-          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 overflow-y-auto max-h-[400px]">
-            <h2 className="text-xl font-semibold mb-4 text-gray-700">Activity Log</h2>
-            <ul className="space-y-3">
-              {chartData.sort((a, b) => b.value - a.value).map((item, i) => (
-                <li key={i} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                  <span className="font-medium text-gray-700">{item.name}</span>
-                  <span className="font-bold text-blue-600">{item.value} hrs</span>
-                </li>
+          {/* The Habit Coach Chat */}
+          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 flex flex-col h-80">
+            <h2 className="text-xl font-semibold mb-4 text-gray-700 flex items-center">Habit Coach</h2>
+            <div className="flex-1 overflow-y-auto mb-4">
+              {chatHistory.map((msg, index) => (
+                <div key={index} className={`p-3 rounded-lg mb-2 ${msg.role === 'user' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
+                  {msg.text}
+                </div>
               ))}
-            </ul>
+              {isTyping && (
+                <div className="p-3 rounded-lg bg-gray-100 text-gray-800">
+                  <span className="animate-pulse">...</span>
+                </div>
+              )}
+            </div>
+            <form onSubmit={handleAskCoach} className="flex items-center">
+              <input
+                type="text"
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="Ask your habit coach..."
+                className="border border-gray-300 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="submit"
+                className="ml-2 bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                Send
+              </button>
+            </form>
           </div>
         </div>
 

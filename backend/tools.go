@@ -18,7 +18,7 @@ type EventSummary struct {
 
 // GetEvetnsInRange retreives events for any time frame (past/present/future) for a user from the database
 func GetEventsInRange(db *sql.DB, userID string, startTime string, endTime string) ([]EventSummary, error) {
-	query := `SELECT habit_id, duration_minutes, start_time FROM events WHERE user_id = ? AND start_time >= ? AND start_time <= ? ORDER BY start_time ASC`
+	query := `SELECT habit_id, duration_minutes, start_time FROM events WHERE user_id = ? AND datetime(start_time) >= datetime(?) AND datetime(start_time) <= datetime(?) ORDER BY start_time ASC`
 	rows, err := db.Query(query, userID, startTime, endTime)
 	if err != nil {
 		return nil, err
@@ -47,7 +47,7 @@ type ProbabilityStats struct {
 
 // CalculateHabitProbability is a statistical function that predicts adherence probability for a habit based on past data. It returns a ProbabilityStats struct with the results.
 func CalculateHabitProbability(db *sql.DB, userID string, habitName string, startTime string, endTime string) (ProbabilityStats, error) {
-	query := `SELECT start_time FROM EVENTS WHERE user_id = ? AND habit_id LIKE ? AND start_time >= ? AND start_time <= ? ORDER BY start_time ASC`
+	query := `SELECT start_time FROM EVENTS WHERE user_id = ? AND habit_id LIKE ? AND datetime(start_time) >= datetime(?) AND datetime(start_time) <= datetime(?) ORDER BY start_time ASC`
 
 	rows, err := db.Query(query, userID, "%"+habitName+"%", startTime, endTime)
 	if err != nil {

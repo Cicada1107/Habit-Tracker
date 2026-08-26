@@ -31,8 +31,9 @@ func initOAuth() {
 }
 
 func handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
-	// Generate google login URL and redirect the user there
-	url := googleOauthConfig.AuthCodeURL(oauthStateString)
+	// Generate google login URL and redirect the user there. 
+	// IMPORTANT: We MUST request offline access to get a refresh token!
+	url := googleOauthConfig.AuthCodeURL(oauthStateString, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
@@ -72,6 +73,10 @@ func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	// look up the iternal user id for the given google id
 	var internalUserID string
 	db.QueryRow("SELECT id FROM users WHERE google_id =?", googleId).Scan(&internalUserID)
+
+	// 🔥 Trigger a massive 7-day sync immediately on login!
+	// This guarantees any tasks missed by broken webhooks are instantly caught up.
+	EnqueueSyncJob(googleId)
 
 	// 3. Generate JWT token for the user
 	tokenJWT := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
