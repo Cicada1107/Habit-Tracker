@@ -4,67 +4,60 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/option"
+	"google.golang.org/genai"
 )
 
 type ChatRequest struct {
 	Question string `json:"question"`
 }
 
-type ChartResponse struct {
-	Answer string `json:"answer"`
+type ChatResponse struct {
+	Answer  string `json:"answer"`
+	Thought string `json:"thought"`
 }
 
-// handlehabitCoachChat is the agentic ai endpoint that takes a question and returns an answer
 func handleHabitCoachChat(w http.ResponseWriter, r *http.Request) {
 	var req ChatRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
-		return
-	}
+	json.NewDecoder(r.Body).Decode(&req)
 
 	userID := r.Context().Value("user_id").(string)
 	db := InitDB()
 	defer db.Close()
-
 	ctx := r.Context()
-	client, err := genai.NewClient(ctx, option.WithAPIKey(os.Getenv("GEMINI_API_KEY")))
+
+	// 1. Initialize the AI client
+	client, err := genai.NewClient(ctx, nil)
 	if err != nil {
-		http.Error(w, "Failed to connect to AI service", http.StatusInternalServerError)
+		http.Error(w, "Failed to initialize AI client", http.StatusInternalServerError)
 		return
 	}
-	defer client.Close()
 
-	model := client.GenerativeModel("gemini-3.5-flash")
-
-	// 1. DEFINE THE TOOLBOX
+	// 2. Define the tool box
 	toolbox := &genai.Tool{
 		FunctionDeclarations: []*genai.FunctionDeclaration{
 			{
 				Name:        "get_events_in_range",
-				Description: "Retrieve events for a user within a specified time range. Use this to check past behaviour or future schedules. start_time and end_time must be in RFC3339 string format.",
+				Description: "Fetches a user's events from the database for a given time range.",
 				Parameters: &genai.Schema{
 					Type: genai.TypeObject,
 					Properties: map[string]*genai.Schema{
-						"start_time": {Type: genai.TypeString, Description: "RFC3339 formatted start time for the range."},
-						"end_time":   {Type: genai.TypeString, Description: "RFC3339 formatted end time for the range."},
+						"start_time": {Type: genai.TypeString, Description: "Start time in RFC3339 format"},
+						"end_time":   {Type: genai.TypeString, Description: "End time in RFC3339 format"},
 					},
 					Required: []string{"start_time", "end_time"},
 				},
 			},
 			{
 				Name:        "calculate_habit_probability",
-				Description: "Calculates the statistical probability of the user adhering to a specific habit, along with their consistency score. Use this to predict future adherence based on past behaviour.",
+				Description: "Calculates the probability of a user adhering to a habit based on past data.",
 				Parameters: &genai.Schema{
 					Type: genai.TypeObject,
 					Properties: map[string]*genai.Schema{
-						"habit_name": {Type: genai.TypeString, Description: "The name of the habit to calculate probability for."},
-						"start_time": {Type: genai.TypeString, Description: "RFC3339 formatted start time for the range."},
-						"end_time":   {Type: genai.TypeString, Description: "RFC3339 formatted end time for the range."},
+						"habit_name": {Type: genai.TypeString, Description: "Name of the habit"},
+						"start_time": {Type: genai.TypeString, Description: "Start time in RFC3339 format"},
+						"end_time":   {Type: genai.TypeString, Description: "End time in RFC3339 format"},
 					},
 					Required: []string{"habit_name", "start_time", "end_time"},
 				},
@@ -72,59 +65,86 @@ func handleHabitCoachChat(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	model.Tools = append(model.Tools, toolbox)
 	currentTime := time.Now().Format(time.RFC3339)
-	systemPrompt := fmt.Sprintf(`You are the 'Habit Coach' AI. The current time is %s. You have access to tools to fetch user data and calculate probabilities. ALWAYS use your tools to check the user's schedule or stats before answering questions about their habits. Keep your final answer concise and encouraging, formatted in markdown. Be unbiased, and try to be to the point and clear.`, currentTime)
+	systemPrompt := fmt.Sprintf(`You are the 'Habit Coach' AI. The current time is %s. You have access to the following tools:
+		1. get_events_in_range: Fetches a user's events from the database for a given time range.
+		2. calculate_habit_probability: Calculates the probability of a user adhering to a habit based on past data.
 
-	model.SystemInstruction = &genai.Content{
-		Parts: []genai.Part{genai.Text(systemPrompt)},
+		Use these tools to provide accurate and helpful responses to the user's questions about their habits and events.
+		ALWAYS check stats before answering. Be unbiased, concise, professional and to the point.`, currentTime)
+
+	// 3. Create the Configuration
+	config := &genai.GenerateContentConfig{
+		Tools: []*genai.Tool{toolbox},
+		SystemInstruction: &genai.Content{
+			Parts: []*genai.Part{genai.NewPartFromText(systemPrompt)},
+		},
+	}
+
+	// 4. Start the Chat Session
+	session, _ := client.Chats.Create(ctx, "gemini-3.5-flash-lite", config, nil)
+
+	// send the initial user message
+	resp, err := session.SendMessage(ctx, *genai.NewPartFromText(req.Question))
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to send message to AI: %v", err)
+		fmt.Println("🔴", errMsg)
+		http.Error(w, errMsg, http.StatusInternalServerError)
+		return
 	}
 
 	var answer string
-	currentPrompt := req.Question
 
-	// 2. The STATELESS ReAct Loop (Max 3 iterations)
-	// Bypasses both the Quota limit of 2.5 and the thought_signature bug of 3.5!
-	for i := 0; i < 3; i++ {
+	// 5. Tool ReAct loop
+	for i := 0; i < 10; i++ {
 		toolCalled := false
-		resp, err := model.GenerateContent(ctx, genai.Text(currentPrompt))
-		
-		if err != nil {
-			fmt.Printf("🔴 AI ERROR: %v\n", err)
-			http.Error(w, "AI generation failed", http.StatusInternalServerError)
-			return
-		}
+
+		var funcResponses []genai.Part
 
 		for _, part := range resp.Candidates[0].Content.Parts {
-			if funcCall, ok := part.(genai.FunctionCall); ok {
+			
+			// If tools have been called
+			if part.FunctionCall != nil {
 				toolCalled = true
-				fmt.Println("🤖 AI is calling tool:", funcCall.Name)
-
+				funcCall := part.FunctionCall
+				fmt.Println("Calling tool: ", funcCall.Name)
+				
 				var toolData any
-
-				if funcCall.Name == "get_events_in_range" {
-					startTime := funcCall.Args["start_time"].(string)
-					endTime := funcCall.Args["end_time"].(string)
-					events, _ := GetEventsInRange(db, userID, startTime, endTime)
-					toolData = events
-					
-				} else if funcCall.Name == "calculate_habit_probability" {
-					habit := funcCall.Args["habit_name"].(string)
-					startTime := funcCall.Args["start_time"].(string)
-					endTime := funcCall.Args["end_time"].(string)
-					stats, _ := CalculateHabitProbability(db, userID, habit, startTime, endTime)
-					toolData = stats
+				switch funcCall.Name {
+					case "get_events_in_range":
+						start := funcCall.Args["start_time"].(string)
+						end := funcCall.Args["end_time"].(string)
+						events, _ := GetEventsInRange(db, userID, start, end)
+						toolData = events
+					case "calculate_habit_probability":
+						habit := funcCall.Args["habit_name"].(string)
+						start := funcCall.Args["start_time"].(string)
+						end := funcCall.Args["end_time"].(string)
+						stats, _ := CalculateHabitProbability(db, userID, habit, start, end)
+						toolData = stats
+					default:
+						toolData = map[string]string{"error": "Unknown tool called"}
 				}
+				
+				// JSON marshalling to protect SDK
+				toolDataWrapped := map[string]any{"result": toolData}
+				b, _ := json.Marshal(toolDataWrapped)
+				var cleanData map[string]any
+				json.Unmarshal(b, &cleanData)
 
-				// Convert data to JSON string
-				dataBytes, _ := json.MarshalIndent(toolData, "", "  ")
+				funcResponses = append(funcResponses, *genai.NewPartFromFunctionResponse(funcCall.Name, cleanData))
+			} else if part.Text != "" {
+				answer += part.Text
+			}
+		}
 
-				// Append the tool results to the prompt for the next iteration!
-				currentPrompt += fmt.Sprintf("\n\nSystem Note: You called tool '%s' which returned:\n%s\nFormulate your final answer, or call another tool if you need more data.", funcCall.Name, string(dataBytes))
-				break // Break out of the parts loop, let the ReAct loop iterate
-
-			} else if text, ok := part.(genai.Text); ok {
-				answer += string(text)
+		if len(funcResponses) > 0 {
+			resp, err = session.SendMessage(ctx, funcResponses...)
+			if err != nil {
+				errMsg := fmt.Sprintf("Failed to send tool response to AI: %v", err)
+				fmt.Println("🔴", errMsg)
+				http.Error(w, errMsg, http.StatusInternalServerError)
+				return
 			}
 		}
 
@@ -133,7 +153,9 @@ func handleHabitCoachChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 5. Send the final answer to the frontend (MUST be outside the for loop!)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(ChartResponse{Answer: answer})
+	json.NewEncoder(w).Encode(ChatResponse{
+		Answer: answer,
+		Thought: "Upgraded to modern SDK.",
+	})
 }
