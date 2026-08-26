@@ -12,7 +12,7 @@ export default function App() {
   const [events, setEvents] = useState<HabitEvent[]>([]);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [question, setQuestion] = useState('');
-  const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
+  const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'ai'; text: string; thought?: string }[]>([]);
   const [isTyping, setIsTyping] = useState(false);
 
 
@@ -87,11 +87,11 @@ export default function App() {
         body: JSON.stringify({ question }),
       });
       const data = await res.json();
-      setChatHistory((prev) => [...prev, { role: 'ai', text: data.answer }]);
+      setChatHistory((prev) => [...prev, { role: 'ai', text: data.answer, thought: data.thought }]);
     } catch(err){
       setChatHistory((prev) => [...prev, { role: 'ai', text: 'Error: Unable to get response from Habit Coach.' }]);
     }
-    setIsTyping(false);Error: "Unable to get response from Habit Coach."
+    setIsTyping(false);
   };
 
   return (
@@ -140,8 +140,17 @@ export default function App() {
             <h2 className="text-xl font-semibold mb-4 text-gray-700 flex items-center">Habit Coach</h2>
             <div className="flex-1 overflow-y-auto mb-4">
               {chatHistory.map((msg, index) => (
-                <div key={index} className={`p-3 rounded-lg mb-2 ${msg.role === 'user' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
-                  {msg.text}
+                <div key={index} className={`p-3 rounded-lg mb-2 ${msg.role === 'user' ? 'bg-blue-100 text-blue-800 ml-8' : 'bg-gray-100 text-gray-800 mr-8'}`}>
+                  <strong>{msg.role === 'user' ? 'You: ' : 'Coach: '}</strong>
+                  
+                  {msg.thought && (
+                    <details className="mb-2 text-xs text-gray-500 bg-white p-2 rounded border border-gray-200 cursor-pointer">
+                      <summary className="font-semibold">View AI Thought Process</summary>
+                      <div className="mt-2 whitespace-pre-wrap">{msg.thought}</div>
+                    </details>
+                  )}
+
+                  <div className="whitespace-pre-wrap">{msg.text}</div>
                 </div>
               ))}
               {isTyping && (

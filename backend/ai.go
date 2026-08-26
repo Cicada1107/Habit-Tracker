@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"google.golang.org/genai"
@@ -71,7 +72,8 @@ func handleHabitCoachChat(w http.ResponseWriter, r *http.Request) {
 		2. calculate_habit_probability: Calculates the probability of a user adhering to a habit based on past data.
 
 		Use these tools to provide accurate and helpful responses to the user's questions about their habits and events.
-		ALWAYS check stats before answering. Be unbiased, concise, professional and to the point.`, currentTime)
+		ALWAYS check stats before answering. Be unbiased, concise, professional and to the point.
+		CRITICAL INSTRUCTION: You MUST wrap all of your internal reasoning and step-by-step thinking inside <thought>...</thought> XML tags BEFORE outputting your final answer to the user.`, currentTime)
 
 	// 3. Create the Configuration
 	config := &genai.GenerateContentConfig{
@@ -93,7 +95,8 @@ func handleHabitCoachChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var answer string
+	var rawAnswer string
+	var actionsLog string
 
 	// 5. Tool ReAct loop
 	for i := 0; i < 10; i++ {
@@ -109,6 +112,8 @@ func handleHabitCoachChat(w http.ResponseWriter, r *http.Request) {
 				funcCall := part.FunctionCall
 				fmt.Println("Calling tool: ", funcCall.Name)
 				
+				actionsLog += fmt.Sprintf("Analysing data using tool: %s...\n", funcCall.Name)
+
 				var toolData any
 				switch funcCall.Name {
 					case "get_events_in_range":
@@ -134,7 +139,7 @@ func handleHabitCoachChat(w http.ResponseWriter, r *http.Request) {
 
 				funcResponses = append(funcResponses, *genai.NewPartFromFunctionResponse(funcCall.Name, cleanData))
 			} else if part.Text != "" {
-				answer += part.Text
+				rawAnswer += part.Text
 			}
 		}
 
@@ -153,9 +158,21 @@ func handleHabitCoachChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Extract <thought> tags
+	finalAnswer := rawAnswer
+	extractedThoughts := actionsLog
+
+	startIdx := strings.Index(rawAnswer, "<thought>")
+	endIdx := strings.Index(rawAnswer, "</thought>")
+	
+	if startIdx != -1 && endIdx != -1 && endIdx > startIdx {
+		extractedThoughts += strings.TrimSpace(rawAnswer[startIdx+9 : endIdx])
+		finalAnswer = strings.TrimSpace(rawAnswer[:startIdx] + rawAnswer[endIdx+10:])
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(ChatResponse{
-		Answer: answer,
-		Thought: "Upgraded to modern SDK.",
+		Answer: finalAnswer,
+		Thought: strings.TrimSpace(extractedThoughts),
 	})
 }
