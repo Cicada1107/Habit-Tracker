@@ -13,7 +13,6 @@ func InitDB() *sql.DB {
 	db, err := sql.Open("sqlite3", "./habit_coach.db")
 	if err != nil {
 		log.Fatalf("failed to open database: %v", err)
-
 	}
 
 	createTables(db)
@@ -32,24 +31,26 @@ func createTables(db *sql.DB) {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
-
 	CREATE TABLE IF NOT EXISTS habits(
 		id TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL,
 		name TEXT NOT NULL,
+		description TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
 
 	CREATE TABLE IF NOT EXISTS events (
 		id TEXT PRIMARY KEY,
-		habit_id TEXT NOT NULL,
 		user_id TEXT NOT NULL,
+		raw_title TEXT NOT NULL,
+		habit_id TEXT,
 		start_time DATETIME NOT NULL,
 		end_time DATETIME NOT NULL,
 		duration_minutes INTEGER NOT NULL,
+		mapping_status TEXT DEFAULT 'PENDING',
 		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-		FOREIGN KEY(habit_id) REFERENCES habits(id) ON DELETE CASCADE,
+		FOREIGN KEY(habit_id) REFERENCES habits(id) ON DELETE SET NULL,
 		FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
 	`
@@ -83,16 +84,18 @@ func SaveEvent(db *sql.DB, eventID, userID, title string, startTime, endTime tim
 	durationMinutes := int(endTime.Sub(startTime).Minutes())
 
 	query := `
-		INSERT INTO events (id, habit_id, user_id, start_time, end_time, duration_minutes)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO events (id, user_id, raw_title, start_time, end_time, duration_minutes, mapping_status)
+		VALUES (?, ?, ?, ?, ?, ?, 'PENDING')
 		ON CONFLICT(id) DO UPDATE SET
+			raw_title = excluded.raw_title,
 			start_time = excluded.start_time,
 			end_time = excluded.end_time,
-			duration_minutes = excluded.duration_minutes;
+			duration_minutes = excluded.duration_minutes,
+			mapping_status = 'PENDING'; 
 	`
 
-	// Temporarily saving 'title' as habit_id for now, since we don't have a habit_id yet. In the future, we can map events to habits.
-	_, err := db.Exec(query, eventID, title, userID, startTime, endTime, durationMinutes)
+	// On update, we reset mapping_status to PENDING in case the title changed and needs re-evaluating by AI
+	_, err := db.Exec(query, eventID, userID, title, startTime, endTime, durationMinutes)
 	return err
 }
 
@@ -119,7 +122,15 @@ func fetchCalendarEventsFromDB(googleID string) ([]EventResponse, error) {
 		return nil, err
 	}
 
-	rows, err := db.Query("SELECT habit_id, start_time, duration_minutes FROM events WHERE user_id = ?", userID)
+	// For now, return raw_title as Title to keep the frontend working during transition.
+	// We also optionally fetch the mapped habit name if it exists.
+	query := `
+		SELECT e.raw_title, e.start_time, e.duration_minutes, h.name 
+		FROM events e LEFT JOIN habits h 
+		ON e.habit_id = h.id
+		WHERE e.user_id = ?
+	`
+	rows, err := db.Query(query, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -127,15 +138,23 @@ func fetchCalendarEventsFromDB(googleID string) ([]EventResponse, error) {
 
 	var events []EventResponse
 	for rows.Next() {
-		var habitID string
+		var rawTitle string
 		var startTime time.Time
 		var durationMinutes int
-		if err := rows.Scan(&habitID, &startTime, &durationMinutes); err != nil {
+		var habitName sql.NullString
+
+		if err := rows.Scan(&rawTitle, &startTime, &durationMinutes, &habitName); err != nil {
 			return nil, err
 		}
 
+		// Use the resolved habit name if mapped, otherwise fallback to raw title for now
+		finalTitle := rawTitle
+		if habitName.Valid {
+			finalTitle = habitName.String
+		}
+
 		event := EventResponse{
-			Title:    habitID,
+			Title:    finalTitle,
 			Start:    startTime.Format(time.RFC3339),
 			Duration: durationMinutes,
 		}

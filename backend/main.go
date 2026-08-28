@@ -52,6 +52,10 @@ func main() {
 	// Webhook routes
 	r.Post("/api/webhooks/google", handleGoogleWebhook)
 
+	// Habit management routes
+	r.Get("/api/habits", AuthMiddleware(handleGetHabits))
+	r.Post("/api/habits", AuthMiddleware(handleCreateHabit))
+
 	// AI routes
 	r.Post("/api/chat", AuthMiddleware(handleHabitCoachChat))
 

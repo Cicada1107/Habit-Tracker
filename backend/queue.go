@@ -57,6 +57,7 @@ func StartWorker(db *sql.DB) {
 		accessToken, refreshToken, expiry, err := GetToken(db, googleId)
 		if err == nil {
 			FetchCalendarEvents(db, accessToken, refreshToken, expiry, googleId)
+			RunAICategorizer(db, googleId)
 			fmt.Println("Worker finished the job successfully")
 		} else {
 			log.Printf("Failed to fetch access token for user %s: %v", googleId, err)

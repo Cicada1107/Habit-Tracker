@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
-import { CalendarDays, LogIn, ChevronUp, ChevronDown, Send, Trophy, Flame, BrainCircuit, Moon, Sun, Plus, Trash2, Activity } from 'lucide-react';
+import { CalendarDays, LogIn, ChevronUp, ChevronDown, Send, Trophy, Flame, BrainCircuit, Moon, Sun, Plus, Activity, Target } from 'lucide-react';
 
 interface HabitEvent {
   title: string;
@@ -8,12 +8,19 @@ interface HabitEvent {
   duration: number; // in minutes
 }
 
+interface Habit {
+  id: string;
+  name: string;
+  description: string;
+}
+
 // --- Heatmap Component ---
-function HabitHeatmap({ title, events, onRemove }: { title: string, events: HabitEvent[], onRemove?: () => void }) {
+function HabitHeatmap({ habit, events }: { habit: Habit, events: HabitEvent[] }) {
   const { heatmapGrid, maxDailyMin } = useMemo(() => {
     const dailyTotals: Record<string, number> = {};
     events.forEach((e) => {
-      if (e.title && e.title.toLowerCase().includes(title.toLowerCase())) {
+      // The backend mapper now sets e.title to the exact habit name if mapped
+      if (e.title === habit.name) {
         const day = e.start.split('T')[0];
         dailyTotals[day] = (dailyTotals[day] || 0) + e.duration;
       }
@@ -24,7 +31,6 @@ function HabitHeatmap({ title, events, onRemove }: { title: string, events: Habi
     const startDate = new Date(today);
     startDate.setDate(today.getDate() - 89);
     
-    // Pad beginning to align with Sunday (0)
     const startDayOfWeek = startDate.getDay();
     for (let i = 0; i < startDayOfWeek; i++) {
       grid.push(null); 
@@ -40,7 +46,7 @@ function HabitHeatmap({ title, events, onRemove }: { title: string, events: Habi
       grid.push({ date: dateStr, value: val });
     }
     return { heatmapGrid: grid, maxDailyMin: maxVal };
-  }, [events, title]);
+  }, [events, habit.name]);
 
   const getHeatmapColor = (value: number) => {
     if (value === 0) return 'bg-gray-100 dark:bg-slate-700';
@@ -52,17 +58,9 @@ function HabitHeatmap({ title, events, onRemove }: { title: string, events: Habi
   };
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 p-6 relative group">
-      {onRemove && (
-        <button 
-          onClick={onRemove} 
-          className="absolute top-4 right-4 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-          title="Untrack Habit"
-        >
-          <Trash2 size={16} />
-        </button>
-      )}
-      <h3 className="text-md font-bold text-gray-800 dark:text-slate-100 mb-4">{title}</h3>
+    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 p-6 relative group transition-colors">
+      <h3 className="text-md font-bold text-gray-800 dark:text-slate-100 mb-1">{habit.name}</h3>
+      <p className="text-xs text-gray-500 dark:text-slate-400 mb-4 line-clamp-1" title={habit.description}>{habit.description}</p>
       <div className="overflow-x-auto pb-2">
         <div className="grid grid-rows-7 grid-flow-col gap-1.5 min-w-max">
           {heatmapGrid.map((day, i) => {
@@ -83,24 +81,24 @@ function HabitHeatmap({ title, events, onRemove }: { title: string, events: Habi
 
 export default function App() {
   const [events, setEvents] = useState<HabitEvent[]>([]);
+  const [habits, setHabits] = useState<Habit[]>([]);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Dark Mode State
   const [isDark, setIsDark] = useState(() => localStorage.getItem('theme') === 'dark');
   
-  // Tracked Habits State
-  const [trackedHabits, setTrackedHabits] = useState<string[]>(() => {
-    const saved = localStorage.getItem('trackedHabits');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [newHabitInput, setNewHabitInput] = useState('');
-
   // Chat State
   const [question, setQuestion] = useState('');
   const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'ai'; text: string; thought?: string }[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   
+  // Add Habit Modal State
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newHabitName, setNewHabitName] = useState('');
+  const [newHabitDesc, setNewHabitDesc] = useState('');
+
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   // Apply dark mode
@@ -110,10 +108,6 @@ export default function App() {
     localStorage.setItem('theme', isDark ? 'dark' : 'light');
   }, [isDark]);
 
-  useEffect(() => {
-    localStorage.setItem('trackedHabits', JSON.stringify(trackedHabits));
-  }, [trackedHabits]);
-
   // Auto-scroll chat to bottom
   useEffect(() => {
     if (chatScrollRef.current) {
@@ -121,77 +115,62 @@ export default function App() {
     }
   }, [chatHistory, isTyping, isChatOpen]);
 
+  // Fetch Data
+  const fetchData = async () => {
+    try {
+      const [eventsRes, habitsRes] = await Promise.all([
+        fetch('http://localhost:8080/api/events', { credentials: 'include' }),
+        fetch('http://localhost:8080/api/habits', { credentials: 'include' })
+      ]);
+      
+      if (eventsRes.status === 401) throw new Error('Not logged in');
+      
+      const eventsData = await eventsRes.json();
+      const habitsData = await habitsRes.json();
+      
+      if (eventsData && Array.isArray(eventsData)) {
+        const now = new Date();
+        const pastEvents = eventsData.filter(e => new Date(e.start) <= now);
+        setEvents(pastEvents);
+      }
+      
+      if (habitsData && Array.isArray(habitsData)) {
+        setHabits(habitsData);
+      }
+      
+      setIsAuthenticated(true);
+    } catch (err) {
+      setIsAuthenticated(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetch('http://localhost:8080/api/events', { credentials: 'include' })
-      .then((res) => {
-        if (res.status === 401) throw new Error('Not logged in');
-        return res.json();
-      })
-      .then((data) => {
-        if (data && Array.isArray(data)) {
-          // Feature 2: Filter out future events
-          const now = new Date();
-          const pastEvents = data.filter(e => new Date(e.start) <= now);
-          setEvents(pastEvents);
-          setIsAuthenticated(true);
-        }
-      })
-      .catch(() => setIsAuthenticated(false));
+    fetchData();
   }, []);
 
-  // --- Data Processors ---
+  const handleAddHabit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newHabitName.trim()) return;
 
-  // All unique habit names for the datalist autocomplete
-  const uniqueHabitNames = useMemo(() => {
-    return Array.from(new Set(events.map(e => e.title || 'Untitled'))).filter(Boolean);
-  }, [events]);
-
-  const topHabits = useMemo(() => {
-    const totals: Record<string, number> = {};
-    events.forEach((e) => {
-      const title = e.title || 'Untitled';
-      totals[title] = (totals[title] || 0) + e.duration;
-    });
-    return Object.entries(totals)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([name, duration]) => ({ name, durationHours: Number((duration / 60).toFixed(1)) }));
-  }, [events]);
-
-  const consistencyData = useMemo(() => {
-    const habitDays: Record<string, Set<string>> = {};
-    events.forEach((e) => {
-      const title = e.title || 'Untitled';
-      const day = e.start.split('T')[0];
-      if (!habitDays[title]) habitDays[title] = new Set();
-      habitDays[title].add(day);
-    });
-    return Object.entries(habitDays)
-      .map(([name, daysSet]) => ({ name, days: daysSet.size }))
-      .sort((a, b) => b.days - a.days)
-      .slice(0, 5);
-  }, [events]);
-
-  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
-
-  if (!isAuthenticated) {
-    return (
-      <div className={`flex h-screen items-center justify-center ${isDark ? 'bg-slate-900' : 'bg-gray-50'}`}>
-        <div className={`text-center ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-100'} p-10 rounded-2xl shadow-xl border`}>
-          <CalendarDays className="mx-auto h-20 w-20 text-blue-600 mb-6" />
-          <h1 className={`text-4xl font-extrabold mb-3 tracking-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>Habit Coach</h1>
-          <p className={`${isDark ? 'text-slate-400' : 'text-gray-500'} mb-8 max-w-sm`}>Connect your Google Calendar and transform your routines with AI-driven insights.</p>
-          <a
-            href="http://localhost:8080/auth/google/login"
-            className="inline-flex items-center justify-center px-8 py-3.5 bg-blue-600 text-white rounded-xl shadow-md hover:bg-blue-700 transition-all font-semibold w-full"
-          >
-            <LogIn className="w-5 h-5 mr-3" />
-            Sign in with Google
-          </a>
-        </div>
-      </div>
-    );
-  }
+    try {
+      const res = await fetch('http://localhost:8080/api/habits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name: newHabitName.trim(), description: newHabitDesc.trim() }),
+      });
+      if (res.ok) {
+        setNewHabitName('');
+        setNewHabitDesc('');
+        setShowAddModal(false);
+        fetchData(); // Refresh to get the new habit
+      }
+    } catch (err) {
+      console.error("Failed to add habit", err);
+    }
+  };
 
   const handleAskCoach = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,14 +195,102 @@ export default function App() {
     setIsTyping(false);
   };
 
-  const trackNewHabit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = newHabitInput.trim();
-    if (trimmed && !trackedHabits.some(h => h.toLowerCase() === trimmed.toLowerCase())) {
-      setTrackedHabits([...trackedHabits, trimmed].slice(0, 5));
-    }
-    setNewHabitInput('');
-  };
+  // --- Data Processors (Only for explicitly mapped habits!) ---
+  const mappedEvents = useMemo(() => {
+    const habitNames = new Set(habits.map(h => h.name));
+    return events.filter(e => habitNames.has(e.title));
+  }, [events, habits]);
+
+  const topHabits = useMemo(() => {
+    const totals: Record<string, number> = {};
+    mappedEvents.forEach((e) => {
+      totals[e.title] = (totals[e.title] || 0) + e.duration;
+    });
+    return Object.entries(totals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, duration]) => ({ name, durationHours: Number((duration / 60).toFixed(1)) }));
+  }, [mappedEvents]);
+
+  const consistencyData = useMemo(() => {
+    const habitDays: Record<string, Set<string>> = {};
+    mappedEvents.forEach((e) => {
+      const day = e.start.split('T')[0];
+      if (!habitDays[e.title]) habitDays[e.title] = new Set();
+      habitDays[e.title].add(day);
+    });
+    return Object.entries(habitDays)
+      .map(([name, daysSet]) => ({ name, days: daysSet.size }))
+      .sort((a, b) => b.days - a.days)
+      .slice(0, 5);
+  }, [mappedEvents]);
+
+  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+  if (isLoading) {
+    return <div className={`flex h-screen items-center justify-center ${isDark ? 'bg-slate-900' : 'bg-gray-50'}`} />
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className={`flex h-screen items-center justify-center ${isDark ? 'bg-slate-900' : 'bg-gray-50'}`}>
+        <div className={`text-center ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-100'} p-10 rounded-2xl shadow-xl border`}>
+          <CalendarDays className="mx-auto h-20 w-20 text-blue-600 mb-6" />
+          <h1 className={`text-4xl font-extrabold mb-3 tracking-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>Habit Coach</h1>
+          <p className={`${isDark ? 'text-slate-400' : 'text-gray-500'} mb-8 max-w-sm`}>Connect your Google Calendar and transform your routines with AI-driven insights.</p>
+          <a
+            href="http://localhost:8080/auth/google/login"
+            className="inline-flex items-center justify-center px-8 py-3.5 bg-blue-600 text-white rounded-xl shadow-md hover:bg-blue-700 transition-all font-semibold w-full"
+          >
+            <LogIn className="w-5 h-5 mr-3" />
+            Sign in with Google
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // ONBOARDING FLOW
+  if (habits.length === 0) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center p-6 ${isDark ? 'bg-slate-900' : 'bg-gray-50'}`}>
+        <div className={`max-w-md w-full ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'} rounded-2xl shadow-xl border p-8`}>
+          <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center mb-6">
+            <Target size={24} />
+          </div>
+          <h1 className={`text-2xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>What do you want to track?</h1>
+          <p className={`text-sm mb-6 ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
+            Define your core habits. Our background AI will automatically scan your Google Calendar and intelligently map related events (like "Hitting the weights") to your defined habit (like "Gym").
+          </p>
+          
+          <form onSubmit={handleAddHabit} className="space-y-4">
+            <div>
+              <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-slate-300' : 'text-gray-700'}`}>Habit Name</label>
+              <input 
+                required
+                placeholder="e.g. Reading"
+                value={newHabitName}
+                onChange={e => setNewHabitName(e.target.value)}
+                className={`w-full p-2.5 rounded-lg border ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-gray-50 border-gray-300'} focus:ring-2 focus:ring-blue-500 outline-none`}
+              />
+            </div>
+            <div>
+              <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-slate-300' : 'text-gray-700'}`}>Description (Helps AI categorize)</label>
+              <input 
+                placeholder="e.g. Reading books, kindle, or articles"
+                value={newHabitDesc}
+                onChange={e => setNewHabitDesc(e.target.value)}
+                className={`w-full p-2.5 rounded-lg border ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-gray-50 border-gray-300'} focus:ring-2 focus:ring-blue-500 outline-none`}
+              />
+            </div>
+            <button type="submit" className="w-full bg-blue-600 text-white font-semibold py-3 rounded-lg hover:bg-blue-700 transition">
+              Save & Start Tracking
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 font-sans pb-20 transition-colors duration-200">
@@ -238,8 +305,14 @@ export default function App() {
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">Habit Coach</h1>
           </div>
           <div className="flex items-center gap-4">
-            <div className="text-sm font-medium text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-700 px-4 py-1.5 rounded-full">
-              {events.length} Past Events
+            <button 
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-1.5 text-sm font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 px-4 py-1.5 rounded-full hover:bg-blue-200 dark:hover:bg-blue-900 transition-colors"
+            >
+              <Plus size={16} /> New Goal
+            </button>
+            <div className="text-sm font-medium text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-700 px-4 py-1.5 rounded-full hidden sm:block">
+              {mappedEvents.length} Mapped Events
             </div>
             <button 
               onClick={() => setIsDark(!isDark)}
@@ -256,51 +329,26 @@ export default function App() {
         {/* Left Column (2/3 width) - Tracked Habits & Charts */}
         <div className="lg:col-span-2 space-y-8">
           
-          {/* Specific Tracked Habits Section */}
           <section>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-800 dark:text-slate-100">Tracked Habits</h2>
-              <form onSubmit={trackNewHabit} className="flex items-center gap-2">
-                <input
-                  list="habit-suggestions"
-                  value={newHabitInput}
-                  onChange={e => setNewHabitInput(e.target.value)}
-                  placeholder="e.g. Reading, Gym..."
-                  className="text-sm border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 dark:text-white rounded-lg py-1.5 px-3 focus:ring-2 focus:ring-blue-500 outline-none"
+            <h2 className="text-xl font-bold text-gray-800 dark:text-slate-100 mb-6 flex items-center gap-2">
+              <Target className="w-5 h-5 text-blue-500" /> Tracked Habits
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {habits.map(habit => (
+                <HabitHeatmap 
+                  key={habit.id} 
+                  habit={habit} 
+                  events={mappedEvents} 
                 />
-                <datalist id="habit-suggestions">
-                  {uniqueHabitNames.map(name => <option key={name} value={name} />)}
-                </datalist>
-                <button type="submit" className="bg-blue-600 text-white p-1.5 rounded-lg hover:bg-blue-700 transition">
-                  <Plus size={18} />
-                </button>
-              </form>
+              ))}
             </div>
-            
-            {trackedHabits.length === 0 ? (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-dashed border-gray-300 dark:border-slate-600 p-10 text-center">
-                <p className="text-gray-500 dark:text-slate-400">You aren't tracking any specific habits yet.</p>
-                <p className="text-sm text-gray-400 dark:text-slate-500 mt-2">Add a habit above to generate its heatmap!</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {trackedHabits.slice(0, 5).map(habit => (
-                  <HabitHeatmap 
-                    key={habit} 
-                    title={habit} 
-                    events={events} 
-                    onRemove={() => setTrackedHabits(trackedHabits.filter(h => h !== habit))}
-                  />
-                ))}
-              </div>
-            )}
           </section>
 
           {/* Habit vs Consistency Bar Chart */}
           <section className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 p-6 transition-colors">
             <div className="flex items-center gap-2 mb-6">
               <Flame className="w-5 h-5 text-orange-500" />
-              <h2 className="text-lg font-bold text-gray-800 dark:text-slate-100">Habit Consistency</h2>
+              <h2 className="text-lg font-bold text-gray-800 dark:text-slate-100">Consistency Ranking</h2>
               <span className="text-sm font-normal text-gray-400 dark:text-slate-500 ml-auto">Unique Days Active</span>
             </div>
             {consistencyData.length > 0 ? (
@@ -323,7 +371,7 @@ export default function App() {
                 </ResponsiveContainer>
               </div>
             ) : (
-              <div className="h-72 flex items-center justify-center text-gray-400 text-sm">Waiting for calendar data...</div>
+              <div className="h-72 flex items-center justify-center text-gray-400 text-sm">No mapped data yet...</div>
             )}
           </section>
         </div>
@@ -335,7 +383,7 @@ export default function App() {
           <section className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 p-6 transition-colors">
             <div className="flex items-center gap-2 mb-6">
               <Trophy className="w-5 h-5 text-yellow-500" />
-              <h2 className="text-lg font-bold text-gray-800 dark:text-slate-100">Top 5 Habits (All Time)</h2>
+              <h2 className="text-lg font-bold text-gray-800 dark:text-slate-100">Top 5 Habits</h2>
             </div>
             <div className="space-y-4">
               {topHabits.length > 0 ? (
@@ -354,20 +402,20 @@ export default function App() {
                   </div>
                 ))
               ) : (
-                <div className="text-sm text-gray-400 text-center py-4">No habits logged yet</div>
+                <div className="text-sm text-gray-400 text-center py-4">No mapped data yet</div>
               )}
             </div>
           </section>
-
+          
           {/* Quick Summary Card */}
           <section className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl shadow-sm p-6 text-white relative overflow-hidden">
              <div className="relative z-10">
-               <h3 className="text-blue-100 font-medium mb-1">Total Time Invested</h3>
+               <h3 className="text-blue-100 font-medium mb-1">Total Mapped Time</h3>
                <div className="text-4xl font-extrabold tracking-tight">
-                 {Math.round(events.reduce((acc, e) => acc + e.duration, 0) / 60)}<span className="text-2xl font-semibold text-blue-200 ml-1">hrs</span>
+                 {Math.round(mappedEvents.reduce((acc, e) => acc + e.duration, 0) / 60)}<span className="text-2xl font-semibold text-blue-200 ml-1">hrs</span>
                </div>
                <p className="text-sm text-blue-200 mt-4 leading-relaxed">
-                 You're building incredible momentum. Keep syncing your Google Calendar!
+                 Only tracking time spent on your explicit goals. Pure signal, no noise.
                </p>
              </div>
              <BrainCircuit className="absolute -bottom-4 -right-4 w-32 h-32 text-white opacity-10" />
@@ -375,19 +423,37 @@ export default function App() {
         </div>
       </main>
 
-      {/* LinkedIn Style Chat Widget (Bottom Right) */}
+      {/* Add Habit Modal (Secondary) */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className={`max-w-md w-full ${isDark ? 'bg-slate-800' : 'bg-white'} rounded-2xl shadow-xl p-6`}>
+            <h2 className={`text-xl font-bold mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>Add New Habit</h2>
+            <form onSubmit={handleAddHabit} className="space-y-4">
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-slate-300' : 'text-gray-700'}`}>Habit Name</label>
+                <input required autoFocus value={newHabitName} onChange={e => setNewHabitName(e.target.value)} className={`w-full p-2.5 rounded-lg border ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-gray-50 border-gray-300'} outline-none`} />
+              </div>
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-slate-300' : 'text-gray-700'}`}>Description</label>
+                <input value={newHabitDesc} onChange={e => setNewHabitDesc(e.target.value)} className={`w-full p-2.5 rounded-lg border ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-gray-50 border-gray-300'} outline-none`} />
+              </div>
+              <div className="flex gap-2 justify-end pt-2">
+                <button type="button" onClick={() => setShowAddModal(false)} className={`px-4 py-2 rounded-lg font-medium ${isDark ? 'text-slate-300 hover:bg-slate-700' : 'text-gray-600 hover:bg-gray-100'}`}>Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700">Save Habit</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* LinkedIn Style Chat Widget */}
       <div className={`fixed bottom-0 right-4 sm:right-10 w-full sm:w-[360px] bg-white dark:bg-slate-800 rounded-t-xl shadow-2xl border border-gray-200 dark:border-slate-700 flex flex-col z-50 transition-all duration-300 ease-in-out ${isChatOpen ? 'h-[500px]' : 'h-14 hover:bg-gray-50 dark:hover:bg-slate-700'}`}>
         
-        {/* Chat Header (Click to toggle) */}
-        <div 
-          onClick={() => setIsChatOpen(!isChatOpen)}
-          className="bg-slate-800 text-white px-4 h-14 flex justify-between items-center cursor-pointer rounded-t-xl select-none"
-        >
+        {/* Chat Header */}
+        <div onClick={() => setIsChatOpen(!isChatOpen)} className="bg-slate-800 text-white px-4 h-14 flex justify-between items-center cursor-pointer rounded-t-xl select-none">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <div className="bg-blue-500 p-1.5 rounded-full">
-                <BrainCircuit size={18} />
-              </div>
+              <div className="bg-blue-500 p-1.5 rounded-full"><BrainCircuit size={18} /></div>
               <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-400 border-2 border-slate-800 rounded-full"></span>
             </div>
             <span className="font-semibold tracking-wide">Habit Coach</span>
@@ -401,8 +467,6 @@ export default function App() {
         {isChatOpen && (
           <>
             <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 bg-gray-50 dark:bg-slate-900 flex flex-col gap-4">
-              
-              {/* Initial Welcome Message */}
               {chatHistory.length === 0 && (
                  <div className="flex gap-3 max-w-[85%]">
                    <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-slate-200 p-3 rounded-2xl rounded-tl-sm text-sm shadow-sm">
@@ -410,12 +474,9 @@ export default function App() {
                    </div>
                  </div>
               )}
-
               {chatHistory.map((msg, index) => (
                 <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} w-full`}>
                   <div className={`max-w-[85%] ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm' : 'bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-slate-200 rounded-2xl rounded-tl-sm'} p-3 text-sm shadow-sm flex flex-col`}>
-                    
-                    {/* The AI's Thought Dropdown */}
                     {msg.thought && (
                       <details className="mb-2 text-xs text-gray-600 dark:text-gray-400 bg-gray-100/50 dark:bg-slate-700/50 p-2 rounded-lg border border-gray-200 dark:border-slate-600 cursor-pointer">
                         <summary className="font-semibold select-none flex items-center gap-1">
@@ -425,12 +486,10 @@ export default function App() {
                         <div className="mt-2 whitespace-pre-wrap font-mono text-[10px] leading-relaxed opacity-80">{msg.thought}</div>
                       </details>
                     )}
-
                     <div className="whitespace-pre-wrap leading-relaxed">{msg.text}</div>
                   </div>
                 </div>
               ))}
-
               {isTyping && (
                 <div className="flex justify-start max-w-[85%]">
                   <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 p-4 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-1.5">
@@ -441,29 +500,15 @@ export default function App() {
                 </div>
               )}
             </div>
-
-            {/* Chat Input */}
             <form onSubmit={handleAskCoach} className="p-3 bg-white dark:bg-slate-800 border-t border-gray-100 dark:border-slate-700 flex items-center gap-2">
-              <input
-                type="text"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                placeholder="Ask about your habits..."
-                className="flex-1 bg-gray-100 dark:bg-slate-700 text-gray-900 dark:text-white text-sm border-transparent focus:border-blue-500 focus:bg-white dark:focus:bg-slate-600 focus:ring-0 rounded-full py-2.5 px-4 outline-none transition-all"
-                autoComplete="off"
-              />
-              <button
-                type="submit"
-                disabled={isTyping || !question.trim()}
-                className="bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-slate-600 text-white p-2.5 rounded-full hover:bg-blue-700 transition-colors flex-shrink-0"
-              >
+              <input type="text" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about your habits..." className="flex-1 bg-gray-100 dark:bg-slate-700 text-gray-900 dark:text-white text-sm border-transparent focus:border-blue-500 focus:bg-white dark:focus:bg-slate-600 focus:ring-0 rounded-full py-2.5 px-4 outline-none transition-all" autoComplete="off" />
+              <button type="submit" disabled={isTyping || !question.trim()} className="bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-slate-600 text-white p-2.5 rounded-full hover:bg-blue-700 transition-colors flex-shrink-0">
                 <Send size={16} className={question.trim() ? "translate-x-0.5" : ""} />
               </button>
             </form>
           </>
         )}
       </div>
-
     </div>
   );
 }
