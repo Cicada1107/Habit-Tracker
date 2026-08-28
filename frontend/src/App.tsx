@@ -309,7 +309,7 @@ export default function App() {
               onClick={() => setShowAddModal(true)}
               className="flex items-center gap-1.5 text-sm font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 px-4 py-1.5 rounded-full hover:bg-blue-200 dark:hover:bg-blue-900 transition-colors"
             >
-              <Plus size={16} /> New Goal
+              <Plus size={16} /> New Habit
             </button>
             <div className="text-sm font-medium text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-700 px-4 py-1.5 rounded-full hidden sm:block">
               {mappedEvents.length} Mapped Events

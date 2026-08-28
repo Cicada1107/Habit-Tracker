@@ -122,15 +122,29 @@ If an event clearly relates to a habit, map it. If it doesn't relate to ANY of t
 
 	jsonString := resp.Candidates[0].Content.Parts[0].Text
 
-	var mappingResult AIMappingResult
-	if err := json.Unmarshal([]byte(jsonString), &mappingResult); err != nil {
-		log.Printf("Mapper: Failed to parse JSON response: %v\nRaw Output: %s", err, jsonString)
-		return
+	type Mapping struct {
+		EventID string  `json:"event_id"`
+		HabitID *string `json:"habit_id"`
+	}
+	
+	var mappings []Mapping
+	
+	// Try parsing as array directly (which flash-lite prefers to output)
+	if err := json.Unmarshal([]byte(jsonString), &mappings); err != nil {
+		// Fallback: try parsing as object with "mappings" key
+		var obj struct {
+			Mappings []Mapping `json:"mappings"`
+		}
+		if err2 := json.Unmarshal([]byte(jsonString), &obj); err2 != nil {
+			log.Printf("Mapper: Failed to parse JSON response: %v\nRaw Output: %s", err, jsonString)
+			return
+		}
+		mappings = obj.Mappings
 	}
 
 	// 6. Update Database
-	log.Printf("Mapper: Successfully mapped %d events", len(mappingResult.Mappings))
-	for _, m := range mappingResult.Mappings {
+	log.Printf("Mapper: Successfully mapped %d events", len(mappings))
+	for _, m := range mappings {
 		if m.HabitID != nil && *m.HabitID != "" {
 			db.Exec("UPDATE events SET habit_id = ?, mapping_status = 'MAPPED' WHERE id = ?", *m.HabitID, m.EventID)
 		} else {

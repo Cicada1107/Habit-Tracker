@@ -75,6 +75,15 @@ func handleCreateHabit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Make sure past IGNORED events get re-evaluated now that a new habit exists!
+	db.Exec("UPDATE events SET mapping_status = 'PENDING' WHERE user_id = ? AND mapping_status = 'IGNORED'", userID)
+	
+	// Fetch google_id to trigger the mapper
+	var googleID string
+	if err := db.QueryRow("SELECT google_id FROM users WHERE id = ?", userID).Scan(&googleID); err == nil {
+		go RunAICategorizer(db, googleID)
+	}
+
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"id": habitID, "status": "success"})
 }

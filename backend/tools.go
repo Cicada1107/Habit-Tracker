@@ -16,9 +16,15 @@ type EventSummary struct {
 	Date      string `json:"date"`
 }
 
-// GetEvetnsInRange retreives events for any time frame (past/present/future) for a user from the database
+// GetEventsInRange retrieves events for any time frame for a user from the database
 func GetEventsInRange(db *sql.DB, userID string, startTime string, endTime string) ([]EventSummary, error) {
-	query := `SELECT habit_id, duration_minutes, start_time FROM events WHERE user_id = ? AND datetime(start_time) >= datetime(?) AND datetime(start_time) <= datetime(?) ORDER BY start_time ASC`
+	query := `
+		SELECT COALESCE(h.name, e.raw_title), e.duration_minutes, e.start_time 
+		FROM events e
+		LEFT JOIN habits h ON e.habit_id = h.id
+		WHERE e.user_id = ? AND datetime(e.start_time) >= datetime(?) AND datetime(e.start_time) <= datetime(?) 
+		ORDER BY e.start_time ASC`
+		
 	rows, err := db.Query(query, userID, startTime, endTime)
 	if err != nil {
 		return nil, err
@@ -45,9 +51,15 @@ type ProbabilityStats struct {
 	PredictedProbability float64 `json:"predicted_probability_percentage"`
 }
 
-// CalculateHabitProbability is a statistical function that predicts adherence probability for a habit based on past data. It returns a ProbabilityStats struct with the results.
+// CalculateHabitProbability predicts adherence probability for a tracked habit based on past data.
 func CalculateHabitProbability(db *sql.DB, userID string, habitName string, startTime string, endTime string) (ProbabilityStats, error) {
-	query := `SELECT start_time FROM EVENTS WHERE user_id = ? AND habit_id LIKE ? AND datetime(start_time) >= datetime(?) AND datetime(start_time) <= datetime(?) ORDER BY start_time ASC`
+	// Notice we only query mapped habits here!
+	query := `
+		SELECT e.start_time 
+		FROM events e
+		JOIN habits h ON e.habit_id = h.id
+		WHERE e.user_id = ? AND h.name LIKE ? AND datetime(e.start_time) >= datetime(?) AND datetime(e.start_time) <= datetime(?) 
+		ORDER BY e.start_time ASC`
 
 	rows, err := db.Query(query, userID, "%"+habitName+"%", startTime, endTime)
 	if err != nil {
@@ -69,14 +81,12 @@ func CalculateHabitProbability(db *sql.DB, userID string, habitName string, star
 		TotalOccurances: len(dates),
 	}
 
-	// If less than 2 events, not enough data to calculate statistics
 	if len(dates) < 2 {
 		stats.PredictedProbability = 0.0
 		stats.ConsistencyScore = 0.0
 		return stats, nil
 	}
 
-	// 1. Caculate gaps (in hours) between each time the habit wasw performed
 	var gaps []float64
 	var sumGaps float64
 	for i := 1; i < len(dates); i++ {
@@ -85,10 +95,8 @@ func CalculateHabitProbability(db *sql.DB, userID string, habitName string, star
 		sumGaps += gap
 	}
 
-	// 2. Calculate average gap
 	meanGap := sumGaps / float64(len(gaps))
 
-	// 3. Calculate Variance and Standard Deviation (How consistent?)
 	var sumVariance float64
 	for _, gap := range gaps {
 		sumVariance += math.Pow(gap-meanGap, 2)
@@ -96,19 +104,18 @@ func CalculateHabitProbability(db *sql.DB, userID string, habitName string, star
 	variance := sumVariance / float64(len(gaps))
 	stdDev := math.Sqrt(variance)
 
-	consistency := (meanGap / (meanGap + stdDev)) * 100 // Higher score means more consistent
+	consistency := (meanGap / (meanGap + stdDev)) * 100 
 	if math.IsNaN(consistency) {
-		consistency = 50.0 // Default to 50% if NaN
+		consistency = 50.0 
 	}
-	stats.ConsistencyScore = math.Round(consistency*100) / 100 // Round to 2 decimal places
+	stats.ConsistencyScore = math.Round(consistency*100) / 100 
 
-	// 4. Calc Predicted probability of doing it today
 	hoursSinceLast := time.Now().Sub(dates[len(dates)-1]).Hours()
 	zScore := math.Abs(hoursSinceLast-meanGap) / (stdDev + 1)
 
 	probability := math.Max(0, 100-(zScore*25))
-	finalProb := (probability * 0.7) + (stats.ConsistencyScore * 0.3) // Weighted average of probability and consistency
-	stats.PredictedProbability = math.Round(finalProb*100) / 100      // Round to 2 decimal places
+	finalProb := (probability * 0.7) + (stats.ConsistencyScore * 0.3)
+	stats.PredictedProbability = math.Round(finalProb*100) / 100 
 
 	return stats, nil
 }

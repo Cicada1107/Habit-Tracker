@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -66,14 +67,35 @@ func handleHabitCoachChat(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
+	// Fetch the user's defined habits to give the AI context
+	rows, _ := db.Query("SELECT name, description FROM habits WHERE user_id = ?", userID)
+	var habitsList string
+	for rows.Next() {
+		var name string
+		var desc sql.NullString
+		rows.Scan(&name, &desc)
+		habitsList += fmt.Sprintf("- %s (Description: %s)\n", name, desc.String)
+	}
+	rows.Close()
+
+	if habitsList == "" {
+		habitsList = "No habits defined yet."
+	}
+
 	currentTime := time.Now().Format(time.RFC3339)
 	systemPrompt := fmt.Sprintf(`You are the 'Habit Coach' AI. The current time is %s. You have access to the following tools:
 		1. get_events_in_range: Fetches a user's events from the database for a given time range.
 		2. calculate_habit_probability: Calculates the probability of a user adhering to a habit based on past data.
 
+		IMPORTANT: The user tracks specific explicit habits. When using tools, you MUST use the exact 'Habit Name' listed below for the habit_name argument.
+		Do NOT use the user's raw query terms (like 'system design') for the habit_name argument; map their query to one of the tracking goals below.
+
+		User's Tracked Habits:
+		%s
+
 		Use these tools to provide accurate and helpful responses to the user's questions about their habits and events.
 		ALWAYS check stats before answering. Be unbiased, concise, professional and to the point.
-		CRITICAL INSTRUCTION: You MUST wrap all of your internal reasoning and step-by-step thinking inside <thought>...</thought> XML tags BEFORE outputting your final answer to the user.`, currentTime)
+		CRITICAL INSTRUCTION: You MUST wrap all of your internal reasoning and step-by-step thinking inside <thought>...</thought> XML tags BEFORE outputting your final answer to the user.`, currentTime, habitsList)
 
 	// 3. Create the Configuration
 	config := &genai.GenerateContentConfig{
