@@ -95,6 +95,7 @@ func handleHabitCoachChat(w http.ResponseWriter, r *http.Request) {
 
 		Use these tools to provide accurate and helpful responses to the user's questions about their habits and events.
 		ALWAYS check stats before answering. Be unbiased, concise, professional and to the point.
+		Do NOT use Markdown formatting (no asterisks, no bolding, no hashes). Output plain text only.
 		CRITICAL INSTRUCTION: You MUST wrap all of your internal reasoning and step-by-step thinking inside <thought>...</thought> XML tags BEFORE outputting your final answer to the user.`, currentTime, habitsList)
 
 	// 3. Create the Configuration

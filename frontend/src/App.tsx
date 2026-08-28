@@ -324,10 +324,10 @@ export default function App() {
         </div>
       </nav>
 
-      <main className="max-w-6xl mx-auto px-6 mt-10 grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 mt-6 sm:mt-10 grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
         
         {/* Left Column (2/3 width) - Tracked Habits & Charts */}
-        <div className="lg:col-span-2 space-y-8">
+        <div className="lg:col-span-2 space-y-6 sm:space-y-8">
           
           <section>
             <h2 className="text-xl font-bold text-gray-800 dark:text-slate-100 mb-6 flex items-center gap-2">
@@ -377,7 +377,7 @@ export default function App() {
         </div>
 
         {/* Right Column (1/3 width) - Leaderboards & Stats */}
-        <div className="space-y-8">
+        <div className="space-y-6 sm:space-y-8">
           
           {/* Top 5 Habits */}
           <section className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 p-6 transition-colors">
@@ -447,10 +447,10 @@ export default function App() {
       )}
 
       {/* LinkedIn Style Chat Widget */}
-      <div className={`fixed bottom-0 right-4 sm:right-10 w-full sm:w-[360px] bg-white dark:bg-slate-800 rounded-t-xl shadow-2xl border border-gray-200 dark:border-slate-700 flex flex-col z-50 transition-all duration-300 ease-in-out ${isChatOpen ? 'h-[500px]' : 'h-14 hover:bg-gray-50 dark:hover:bg-slate-700'}`}>
+      <div className={`fixed bottom-0 right-0 sm:right-10 w-full sm:w-[360px] bg-white dark:bg-slate-800 sm:rounded-t-xl shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] border-t sm:border-x border-gray-200 dark:border-slate-700 flex flex-col z-50 transition-all duration-300 ease-in-out ${isChatOpen ? 'h-[80vh] sm:h-[500px]' : 'h-14 hover:bg-gray-50 dark:hover:bg-slate-700'}`}>
         
         {/* Chat Header */}
-        <div onClick={() => setIsChatOpen(!isChatOpen)} className="bg-slate-800 text-white px-4 h-14 flex justify-between items-center cursor-pointer rounded-t-xl select-none">
+        <div onClick={() => setIsChatOpen(!isChatOpen)} className="bg-slate-800 text-white px-4 h-14 flex justify-between items-center cursor-pointer sm:rounded-t-xl select-none">
           <div className="flex items-center gap-3">
             <div className="relative">
               <div className="bg-blue-500 p-1.5 rounded-full"><BrainCircuit size={18} /></div>
